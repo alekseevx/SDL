@@ -61,6 +61,7 @@ SDL_KMSDRM_SYM(drmModeConnectorPtr,drmModeGetConnector,(int fd, uint32_t connect
 SDL_KMSDRM_SYM(int,drmHandleEvent,(int fd,drmEventContextPtr evctx))
 SDL_KMSDRM_SYM(int,drmModePageFlip,(int fd, uint32_t crtc_id, uint32_t fb_id,
                                     uint32_t flags, void *user_data))
+SDL_KMSDRM_SYM(int, drmIoctl,(int fd, unsigned long request, void *arg))
 
 
 SDL_KMSDRM_MODULE(GBM)

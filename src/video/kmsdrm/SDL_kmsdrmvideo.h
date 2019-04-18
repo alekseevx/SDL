@@ -57,6 +57,16 @@ typedef struct SDL_DisplayData
 } SDL_DisplayData;
 
 
+typedef struct KMSDRM_DrmFB
+{
+    uint32_t handle;
+    uint8_t *map;
+    uint32_t stride;
+    uint64_t size;
+    uint32_t id;
+} KMSDRM_DrmFB;
+#define KMSDRM_DRMFB_COUNT (2)
+ 
 typedef struct SDL_WindowData
 {
     struct gbm_surface *gs;
@@ -68,6 +78,10 @@ typedef struct SDL_WindowData
     SDL_bool double_buffer;
 #if SDL_VIDEO_OPENGL_EGL
     EGLSurface egl_surface;
+#else
+    KMSDRM_DrmFB drm_fbs[KMSDRM_DRMFB_COUNT];
+    int front_drm_fb;
+    SDL_Surface* win_surface;
 #endif
 } SDL_WindowData;
 

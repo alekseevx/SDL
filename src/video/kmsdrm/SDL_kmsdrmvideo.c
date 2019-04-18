@@ -41,6 +41,7 @@
 #include "SDL_kmsdrmopengles.h"
 #include "SDL_kmsdrmmouse.h"
 #include "SDL_kmsdrmdyn.h"
+#include "SDL_kmsdrmframebuffer.h"
 #include <sys/stat.h>
 #include <dirent.h>
 #include <errno.h>
@@ -223,6 +224,10 @@ KMSDRM_Create(int devindex)
     device->GL_GetSwapInterval = KMSDRM_GLES_GetSwapInterval;
     device->GL_SwapWindow = KMSDRM_GLES_SwapWindow;
     device->GL_DeleteContext = KMSDRM_GLES_DeleteContext;
+#else
+    device->CreateWindowFramebuffer = KMSDRM_CreateWindowFramebuffer;
+    device->UpdateWindowFramebuffer = KMSDRM_UpdateWindowFramebuffer;
+    device->DestroyWindowFramebuffer = KMSDRM_DestroyWindowFramebuffer;
 #endif
 
     device->PumpEvents = KMSDRM_PumpEvents;
