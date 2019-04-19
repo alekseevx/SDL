@@ -123,11 +123,25 @@ int KMSDRM_CreateWindowFramebuffer(_THIS, SDL_Window * window,
                                    void ** pixels, int *pitch)
 {
    SDL_WindowData *wdata = (SDL_WindowData *) window->driverdata;
+   SDL_VideoData *vdata = (SDL_VideoData *)_this->driverdata;
+   SDL_DisplayData *displaydata = (SDL_DisplayData *) SDL_GetDisplayForWindow(window)->driverdata;
+   KMSDRM_DrmFB *drm_fb = NULL;
+   int errcode;
 
    KMSDRM_DestroyWindowFramebuffer(_this, window);
 
    if (!KMSDRM_CreateDrmFBs(_this, window))
       goto err;
+
+   drm_fb = &wdata->drm_fbs[wdata->front_drm_fb];
+   errcode = KMSDRM_drmModeSetCrtc(vdata->drm_fd, vdata->crtc_id, drm_fb->id,
+                                   0, 0, &vdata->saved_conn_id, 1, &displaydata->cur_mode);
+   if (errcode) {
+      SDL_SetError("Could not set up CRTC: %d", errno);
+      goto err;
+   }
+   wdata->front_drm_fb = (wdata->front_drm_fb + 1) % KMSDRM_DRMFB_COUNT;
+   wdata->crtc_ready = SDL_TRUE;
 
    wdata->win_surface = SDL_CreateRGBSurfaceWithFormat(0, window->w, window->h, 32, SDL_PIXELFORMAT_RGB888);
    if (wdata->win_surface == NULL) 
@@ -148,7 +162,6 @@ int KMSDRM_UpdateWindowFramebuffer(_THIS, SDL_Window * window,
 {
    SDL_WindowData *wdata = (SDL_WindowData *) window->driverdata;
    SDL_VideoData *vdata = (SDL_VideoData *)_this->driverdata;
-   SDL_DisplayData *displaydata = (SDL_DisplayData *) SDL_GetDisplayForWindow(window)->driverdata;
    KMSDRM_DrmFB *drm_fb = &wdata->drm_fbs[wdata->front_drm_fb];
    SDL_Surface *win_surface = wdata->win_surface;
    int err;
@@ -160,10 +173,16 @@ int KMSDRM_UpdateWindowFramebuffer(_THIS, SDL_Window * window,
       memcpy(dst, src, (size_t)4*win_surface->w);
    }
 
-   err = KMSDRM_drmModeSetCrtc(vdata->drm_fd, vdata->crtc_id, drm_fb->id,
-                               0, 0, &vdata->saved_conn_id, 1, &displaydata->cur_mode);
+    if (!KMSDRM_WaitPageFlip(_this, wdata, -1)) {
+        return 0;
+    }
+
+   wdata->waiting_for_flip = SDL_TRUE;
+   err = KMSDRM_drmModePageFlip(vdata->drm_fd, vdata->crtc_id, drm_fb->id,
+                                DRM_MODE_PAGE_FLIP_EVENT, &wdata->waiting_for_flip);
    if (err) {
-      SDL_SetError("Could not flip CRTC: %d", errno);
+      wdata->waiting_for_flip = SDL_FALSE;
+      SDL_SetError("Could not queue pageflip: %d", errno);
       return -1;
    }
 
