@@ -81,6 +81,9 @@ typedef struct SDL_WindowData
 #else
     KMSDRM_DrmFB drm_fbs[KMSDRM_DRMFB_COUNT];
     int front_drm_fb;
+    uint32_t start_frame_time;
+    int frame_rate;
+    int number_of_delays;
 #endif
 } SDL_WindowData;
 

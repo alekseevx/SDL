@@ -28,6 +28,7 @@
 #include <string.h>
 
 #include "SDL_log.h"
+#include "SDL_timer.h"
 #include "SDL_kmsdrmdyn.h"
 #include "SDL_kmsdrmvideo.h"
 
@@ -143,6 +144,9 @@ static SDL_bool KMSDRM_InitCrtc(_THIS, SDL_Window *window) {
    }
 
    wdata->front_drm_fb = (wdata->front_drm_fb + 1) % KMSDRM_DRMFB_COUNT;
+   wdata->frame_rate = 25;
+   wdata->number_of_delays = 0;
+   wdata->start_frame_time = SDL_GetTicks();
    wdata->crtc_ready = SDL_TRUE;
    ret = SDL_TRUE;
 
@@ -150,6 +154,26 @@ exit:
    if (!ret)
       KMSDRM_DestroyWindowFramebuffer(_this, window);
    return ret;
+}
+
+static uint32_t KMSDRM_CalcAdditionalDelay(_THIS, SDL_Window * window) {
+   SDL_WindowData *wdata = (SDL_WindowData *) window->driverdata;
+   uint32_t frame_duration;
+   uint32_t passed_time;
+
+   if (wdata->frame_rate <= 0)
+      return 0;
+   
+   frame_duration = 1000 / wdata->frame_rate;
+   passed_time = SDL_GetTicks() - wdata->start_frame_time;
+   if (passed_time > frame_duration) {
+      ++wdata->number_of_delays;
+      if (wdata->number_of_delays % 10 == 0)
+         SDL_Log("The number of late frames: %d\n", wdata->number_of_delays);
+      return 0;
+   }
+
+   return frame_duration - passed_time;
 }
 
 
@@ -172,17 +196,28 @@ int KMSDRM_CreateWindowFramebuffer(_THIS, SDL_Window * window,
    return 0;
 }
 
+
 int KMSDRM_UpdateWindowFramebuffer(_THIS, SDL_Window * window,
                                    const SDL_Rect * rects, int numrects)
 {
    SDL_WindowData *wdata = (SDL_WindowData *) window->driverdata;
    SDL_VideoData *vdata = (SDL_VideoData *)_this->driverdata;
    KMSDRM_DrmFB *drm_fb = &wdata->drm_fbs[wdata->front_drm_fb];
+   uint32_t additional_delay = 0;
    int err;
+
+   if (!wdata->crtc_ready) {
+      SDL_SetError("CRTC not ready");
+      return -1;
+   }
 
    if (!KMSDRM_WaitPageFlip(_this, wdata, -1)) {
         return 0;
    }
+
+   additional_delay = KMSDRM_CalcAdditionalDelay(_this, window);
+   if (additional_delay > 1)
+      SDL_Delay(additional_delay - 1);
 
    wdata->waiting_for_flip = SDL_TRUE;
    err = KMSDRM_drmModePageFlip(vdata->drm_fd, vdata->crtc_id, drm_fb->id,
@@ -192,7 +227,7 @@ int KMSDRM_UpdateWindowFramebuffer(_THIS, SDL_Window * window,
       SDL_SetError("Could not queue pageflip: %d", errno);
       return -1;
    }
-
+   wdata->start_frame_time = SDL_GetTicks();
    wdata->front_drm_fb = (wdata->front_drm_fb + 1) % KMSDRM_DRMFB_COUNT;
    window->surface_valid = SDL_FALSE;
    return 0;
@@ -201,7 +236,7 @@ int KMSDRM_UpdateWindowFramebuffer(_THIS, SDL_Window * window,
 void KMSDRM_DestroyWindowFramebuffer(_THIS, SDL_Window * window) {
    SDL_WindowData *wdata = (SDL_WindowData *) window->driverdata;
    KMSDRM_DestroyDrmFBs(_this, window);
-   wdata->crtc_ready = SDL_TRUE;
+   wdata->crtc_ready = SDL_FALSE;
 }
 
 #endif /* SDL_VIDEO_DRIVER_KMSDRM && !SDL_VIDEO_OPENGL_EGL */
