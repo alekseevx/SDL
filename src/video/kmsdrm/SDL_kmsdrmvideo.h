@@ -81,7 +81,6 @@ typedef struct SDL_WindowData
 #else
     KMSDRM_DrmFB drm_fbs[KMSDRM_DRMFB_COUNT];
     int front_drm_fb;
-    SDL_Surface* win_surface;
 #endif
 } SDL_WindowData;
 

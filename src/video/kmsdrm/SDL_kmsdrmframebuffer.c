@@ -117,44 +117,59 @@ static void KMSDRM_DestroyDrmFBs(_THIS, SDL_Window *window) {
    }
 }
 
+static SDL_bool KMSDRM_InitCrtc(_THIS, SDL_Window *window) {
+   SDL_WindowData *wdata = (SDL_WindowData *) window->driverdata;
+   SDL_VideoData *vdata = (SDL_VideoData *)_this->driverdata;
+   SDL_DisplayData *displaydata = (SDL_DisplayData *) SDL_GetDisplayForWindow(window)->driverdata;
+   KMSDRM_DrmFB *drm_fb = NULL;
+   int err = -1;
+   SDL_bool ret = SDL_FALSE;
+
+   if (wdata->crtc_ready) {
+      ret = SDL_TRUE;
+      goto exit;
+   }
+
+   if (!KMSDRM_CreateDrmFBs(_this, window))
+      goto exit;
+
+   wdata->front_drm_fb = 0;
+   drm_fb = &wdata->drm_fbs[wdata->front_drm_fb];
+   err = KMSDRM_drmModeSetCrtc(vdata->drm_fd, vdata->crtc_id, drm_fb->id,
+                               0, 0, &vdata->saved_conn_id, 1, &displaydata->cur_mode);
+   if (err) {
+      SDL_SetError("Could not set up CRTC: %d", errno);
+      goto exit;
+   }
+
+   wdata->front_drm_fb = (wdata->front_drm_fb + 1) % KMSDRM_DRMFB_COUNT;
+   wdata->crtc_ready = SDL_TRUE;
+   ret = SDL_TRUE;
+
+exit:
+   if (!ret)
+      KMSDRM_DestroyWindowFramebuffer(_this, window);
+   return ret;
+}
+
 
 int KMSDRM_CreateWindowFramebuffer(_THIS, SDL_Window * window,
                                    Uint32 * format,
                                    void ** pixels, int *pitch)
 {
    SDL_WindowData *wdata = (SDL_WindowData *) window->driverdata;
-   SDL_VideoData *vdata = (SDL_VideoData *)_this->driverdata;
-   SDL_DisplayData *displaydata = (SDL_DisplayData *) SDL_GetDisplayForWindow(window)->driverdata;
    KMSDRM_DrmFB *drm_fb = NULL;
-   int errcode;
 
-   KMSDRM_DestroyWindowFramebuffer(_this, window);
-
-   if (!KMSDRM_CreateDrmFBs(_this, window))
-      goto err;
+   if (!wdata->crtc_ready) {
+      if (!KMSDRM_InitCrtc(_this, window))
+         return -1;
+   }
 
    drm_fb = &wdata->drm_fbs[wdata->front_drm_fb];
-   errcode = KMSDRM_drmModeSetCrtc(vdata->drm_fd, vdata->crtc_id, drm_fb->id,
-                                   0, 0, &vdata->saved_conn_id, 1, &displaydata->cur_mode);
-   if (errcode) {
-      SDL_SetError("Could not set up CRTC: %d", errno);
-      goto err;
-   }
-   wdata->front_drm_fb = (wdata->front_drm_fb + 1) % KMSDRM_DRMFB_COUNT;
-   wdata->crtc_ready = SDL_TRUE;
-
-   wdata->win_surface = SDL_CreateRGBSurfaceWithFormat(0, window->w, window->h, 32, SDL_PIXELFORMAT_RGB888);
-   if (wdata->win_surface == NULL) 
-      goto err;
-
    *format = SDL_PIXELFORMAT_RGB888;
-   *pixels = wdata->win_surface->pixels;
-   *pitch = wdata->win_surface->pitch;
+   *pixels = drm_fb->map;
+   *pitch = (int)drm_fb->stride;
    return 0;
-
-err:
-   KMSDRM_DestroyWindowFramebuffer(_this, window);
-   return -1;
 }
 
 int KMSDRM_UpdateWindowFramebuffer(_THIS, SDL_Window * window,
@@ -163,19 +178,11 @@ int KMSDRM_UpdateWindowFramebuffer(_THIS, SDL_Window * window,
    SDL_WindowData *wdata = (SDL_WindowData *) window->driverdata;
    SDL_VideoData *vdata = (SDL_VideoData *)_this->driverdata;
    KMSDRM_DrmFB *drm_fb = &wdata->drm_fbs[wdata->front_drm_fb];
-   SDL_Surface *win_surface = wdata->win_surface;
    int err;
-   int i;
 
-   for (i = 0; i < win_surface->h; ++i) {
-      void* src = (uint8_t *)win_surface->pixels + i*win_surface->pitch;
-      void* dst = drm_fb->map + i*drm_fb->stride;
-      memcpy(dst, src, (size_t)4*win_surface->w);
-   }
-
-    if (!KMSDRM_WaitPageFlip(_this, wdata, -1)) {
+   if (!KMSDRM_WaitPageFlip(_this, wdata, -1)) {
         return 0;
-    }
+   }
 
    wdata->waiting_for_flip = SDL_TRUE;
    err = KMSDRM_drmModePageFlip(vdata->drm_fd, vdata->crtc_id, drm_fb->id,
@@ -187,18 +194,14 @@ int KMSDRM_UpdateWindowFramebuffer(_THIS, SDL_Window * window,
    }
 
    wdata->front_drm_fb = (wdata->front_drm_fb + 1) % KMSDRM_DRMFB_COUNT;
+   window->surface_valid = SDL_FALSE;
    return 0;
 }
 
 void KMSDRM_DestroyWindowFramebuffer(_THIS, SDL_Window * window) {
    SDL_WindowData *wdata = (SDL_WindowData *) window->driverdata;
-
    KMSDRM_DestroyDrmFBs(_this, window);
-
-   if (wdata->win_surface != NULL) {
-      SDL_FreeSurface(wdata->win_surface);
-      wdata->win_surface = NULL;
-   }
+   wdata->crtc_ready = SDL_TRUE;
 }
 
 #endif /* SDL_VIDEO_DRIVER_KMSDRM && !SDL_VIDEO_OPENGL_EGL */

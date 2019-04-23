@@ -49,6 +49,11 @@ SW_ActivateRenderer(SDL_Renderer * renderer)
 {
     SW_RenderData *data = (SW_RenderData *) renderer->driverdata;
 
+    if (renderer->window) {
+            data->surface = NULL;
+            data->window = NULL;
+   }
+
     if (!data->surface) {
         data->surface = data->window;
     }
